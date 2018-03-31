@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"io"
 )
 
@@ -75,6 +76,15 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 
 // Implement the "ConnBeginTx" interface
 func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	c.Lock()
+	defer c.Unlock()
+
+	c.txNo = c.txNo + 1
+	_, err := c.tx.ExecContext(ctx, fmt.Sprintf("SAVEPOINT tx%d", c.txNo))
+	if err != nil {
+		return nil, err
+	}
+
 	return c, nil
 }
 

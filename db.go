@@ -23,6 +23,10 @@ Example:
 	package main
 
 	import (
+	"sync/atomic"
+	"sync/atomic"
+	"sync/atomic"
+	"sync/atomic"
 		"database/sql"
 		"log"
 
@@ -39,12 +43,10 @@ Example:
         // dsn serves as an unique identifier for connection pool
 		db, err := sql.Open("txdb", "identifier")
 		if err != nil {
-			log.Fatal(err)
 		}
 		defer db.Close()
 
 		if _, err := db.Exec(`INSERT INTO users(username) VALUES("gopher")`); err != nil {
-			log.Fatal(err)
 		}
 	}
 
@@ -55,13 +57,14 @@ package txdb
 import (
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"io"
 	"sync"
 )
 
 // Register a txdb sql driver under the given sql driver name
 // which can be used to open a single transaction based database
-// connection.
+// connectioexecn.
 //
 // When Open is called any number of times it returns
 // the same transaction connection. Any Begin, Commit calls
@@ -91,6 +94,7 @@ type conn struct {
 	dsn    string
 	opened int
 	drv    *txDriver
+	txNo   int32
 }
 
 type txDriver struct {
@@ -140,15 +144,42 @@ func (c *conn) Close() (err error) {
 }
 
 func (c *conn) Begin() (driver.Tx, error) {
+	c.Lock()
+	defer c.Unlock()
+
+	c.txNo = c.txNo + 1
+	_, err := c.tx.Exec(fmt.Sprintf("SAVEPOINT tx%d", c.txNo))
+	if err != nil {
+		return nil, err
+	}
+
 	return c, nil
 }
 
 func (c *conn) Commit() error {
-	return nil
+	c.Lock()
+	defer c.Unlock()
+
+	if c.txNo == 0 {
+		return nil
+	}
+
+	_, err := c.tx.Exec(fmt.Sprintf("RELEASE SAVEPOINT tx%d", c.txNo))
+	c.txNo = c.txNo - 1
+	return err
 }
 
 func (c *conn) Rollback() error {
-	return nil
+	c.Lock()
+	defer c.Unlock()
+
+	if c.txNo == 0 {
+		return nil
+	}
+
+	_, err := c.tx.Exec(fmt.Sprintf("ROLLBACK TO SAVEPOINT tx%d", c.txNo))
+	c.txNo = c.txNo - 1
+	return err
 }
 
 func (c *conn) Prepare(query string) (driver.Stmt, error) {

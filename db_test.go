@@ -3,6 +3,7 @@ package txdb
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"testing"
@@ -10,9 +11,42 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+func TestMain(m *testing.M) {
+	db, err := sql.Open("mysql", os.Getenv("DB_URL"))
+
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = db.Exec(`
+		DROP TABLE IF EXISTS users;
+
+		CREATE TABLE users (
+			id BIGINT UNSIGNED AUTO_INCREMENT NOT NULL,
+			username VARCHAR(32) NOT NULL,
+			email VARCHAR(255) NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE INDEX uniq_email (email)
+		) DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ENGINE = InnoDB;
+
+		INSERT INTO users(username, email) VALUES
+			("gopher", "gopher@go.com"),
+			("john", "john@doe.com"),
+			("jane", "jane@doe.com");
+	`)
+
+	if err != nil {
+		panic(err)
+	}
+
+	db.Close()
+
+	os.Exit(m.Run())
+}
+
 func init() {
 	// we register an sql driver txdb
-	Register("txdb", "mysql", "root@/txdb_test?multiStatements=true")
+	Register("txdb", "mysql", os.Getenv("DB_URL"))
 }
 
 func TestShouldRunWithinTransaction(t *testing.T) {
@@ -167,5 +201,39 @@ func TestShouldBeAbleToLockTables(t *testing.T) {
 	_, err = db.Exec("UNLOCK TABLES")
 	if err != nil {
 		t.Fatalf("should be able to unlock table, but got err: %v", err)
+	}
+}
+
+func TestTransactionShouldBeNested(t *testing.T) {
+	db, err := sql.Open("txdb", "tx")
+	defer db.Close()
+
+	if err != nil {
+		t.Fatalf("failed to open mysql connection, err: %v", err)
+	}
+
+	tx, err := db.Begin()
+
+	if err != nil {
+		t.Fatalf("failed to begin transaction, err: %v", err)
+	}
+
+	_, err = tx.Exec("DELETE FROM users")
+	if err != nil {
+		t.Fatalf("failed to execute query, err: %v", err)
+	}
+
+	err = tx.Rollback()
+	if err != nil {
+		t.Fatalf("failed to rollback, err: %v", err)
+	}
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	if err != nil {
+		t.Fatalf("read error, err: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("was expecting 3 users in db, but got %d", count)
 	}
 }

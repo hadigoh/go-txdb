@@ -1,0 +1,19 @@
+version: '2'
+services:
+  db:
+    image: mysql:8.0
+    tmpfs: /var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ''
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'TRUE'
+      MYSQL_DATABASE: txdb_test
+  app:
+    image: golang:1.10.0
+    tty: true
+    working_dir: /go/src/github.com/DATA-DOG/go-txdb
+    volumes:
+      - ./:/go/src/github.com/DATA-DOG/go-txdb
+    environment:
+      DB_URL: root@tcp(db)/txdb_test?multiStatements=true
+    depends_on:
+      - db
